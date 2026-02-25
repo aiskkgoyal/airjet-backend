@@ -1,0 +1,285 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  password  String
+  display   String?
+  role      String // admin / store / office / supervisor
+  createdAt DateTime @default(now())
+
+  // relations
+  rollMastersReceived     RollMaster[]     @relation("UserReceives")
+  beamAdjustmentsApproved BeamAdjustment[] @relation("UserApproves")
+  ReceiveHeader           ReceiveHeader[]
+}
+
+model Counter {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique // e.g., "main_piece"
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model DesignMaster {
+  id            Int      @id @default(autoincrement())
+  designNumber  String   @unique
+  description   String?
+  fabricType    String?
+  ltolMeter     Decimal? @db.Decimal(10, 2)
+  gsm           Decimal? @db.Decimal(10, 2)
+  glm           Decimal? @db.Decimal(10, 2)
+  finishedWidth Decimal  @db.Decimal(10, 2)
+  warpCount     Int
+  weftCount     Int
+  reed          Int
+  pick          Int
+  status        String   @default("ACTIVE") // ACTIVE / INACTIVE
+  createdAt     DateTime @default(now())
+
+  // relations
+  rollMasters    RollMaster[]
+  beamIssues     BeamIssue[]
+  receiveHeaders ReceiveHeader[]
+}
+
+model LoomMaster {
+  id                Int       @id @default(autoincrement())
+  factoryLoomNumber Int       @unique
+  loomType          String?
+  loomName          String?
+  loomBrand         String?
+  loomBrandNumber   String?
+  width             Decimal?  @db.Decimal(10, 2)
+  shedName          String?
+  qrEnabled         Boolean   @default(false)
+  status            String    @default("RUNNING") // RUNNING / STOPPED / MAINTENANCE / SOLD
+  soldAt            DateTime?
+  createdAt         DateTime  @default(now())
+
+  // relations
+  beamIssues     BeamIssue[]
+  rollMasters    RollMaster[]
+  receiveHeaders ReceiveHeader[]
+}
+
+model PartyMaster {
+  id        Int      @id @default(autoincrement())
+  partyName String
+  partyType String? // SIZING / JOB / BOTH
+  contact   String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  // opposite relation fields for BeamInwardHeader
+  sizingBeamInwards BeamInwardHeader[] @relation("SizingParty")
+  jobBeamInwards    BeamInwardHeader[] @relation("JobParty")
+}
+
+model SetMaster {
+  id        Int      @id @default(autoincrement())
+  setNumber String   @unique
+  status    String   @default("OPEN") // OPEN / CLOSED
+  createdAt DateTime @default(now())
+
+  // two relations: one to headers and one to details (named to disambiguate)
+  inwardHeaders     BeamInwardHeader[] @relation("SetHeader")
+  beamInwardDetails BeamInwardDetail[] @relation("SetDetail")
+}
+
+model BeamNameMaster {
+  id        Int      @id @default(autoincrement())
+  beamName  String   @unique
+  yarnType  String?
+  totalEnds Int?
+  reedSpace Int? // RS
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  beamInwardDetails BeamInwardDetail[]
+}
+
+model BeamInwardHeader {
+  id             Int      @id @default(autoincrement())
+  inwardNumber   String   @unique
+  inwardDate     DateTime @default(now())
+  productionType String // OWN / JOB
+  sizingPartyId  Int?
+  jobPartyId     Int?
+  setId          Int?
+  status         String   @default("OPEN") // OPEN / LOCKED / CANCELLED
+  createdAt      DateTime @default(now())
+
+  // relations
+  sizingParty PartyMaster?       @relation("SizingParty", fields: [sizingPartyId], references: [id])
+  jobParty    PartyMaster?       @relation("JobParty", fields: [jobPartyId], references: [id])
+  set         SetMaster?         @relation("SetHeader", fields: [setId], references: [id])
+  details     BeamInwardDetail[]
+}
+
+model BeamInwardDetail {
+  id             Int      @id @default(autoincrement())
+  headerId       Int
+  beamNumber     String   @unique
+  beamNameId     Int?
+  setId          Int?
+  sizingMeter    Decimal  @db.Decimal(12, 2)
+  ltolMeter      Decimal? @db.Decimal(10, 2)
+  remainingMeter Decimal  @db.Decimal(12, 2)
+  totalMeter Decimal @db.Decimal(12,2)
+  status         String   @default("IN_STOCK") // IN_STOCK / ISSUED / CLOSED / CANCELLED
+  createdAt      DateTime @default(now())
+
+  header          BeamInwardHeader @relation(fields: [headerId], references: [id])
+  beamName        BeamNameMaster?  @relation(fields: [beamNameId], references: [id])
+  set             SetMaster?       @relation("SetDetail", fields: [setId], references: [id])
+  beamIssues      BeamIssue[]
+  rollMasters     RollMaster[]
+  beamAdjustments BeamAdjustment[]
+  ReceiveHeader   ReceiveHeader[]
+}
+
+model BeamIssue {
+  id                       Int       @id @default(autoincrement())
+  beamInwardDetailId       Int
+  loomId                   Int?
+  designId                 Int?
+  sizingMeterSnapshot      Decimal   @db.Decimal(12, 2)
+  sizingLtolSnapshot       Decimal?  @db.Decimal(10, 2)
+  greyLtolSnapshot         Decimal?  @db.Decimal(10, 2)
+  expectedFabricMeter      Decimal?  @db.Decimal(12, 2)
+  rollLength               Decimal?  @db.Decimal(10, 2)
+  widthSplitFactor         Int?      @default(1)
+  baseRollCount            Int?
+  expectedRollCount        Int?
+  expectedTotalOutputMeter Decimal?  @db.Decimal(12, 2)
+  issueStatus              String    @default("WAITING") // WAITING / RUNNING / COMPLETED / INTERRUPTED / CANCELLED
+  issueDate                DateTime?
+  startDate                DateTime?
+  endDate                  DateTime?
+  createdAt                DateTime  @default(now())
+
+  beamDetail     BeamInwardDetail @relation(fields: [beamInwardDetailId], references: [id])
+  loom           LoomMaster?      @relation(fields: [loomId], references: [id])
+  design         DesignMaster?    @relation(fields: [designId], references: [id])
+  receiveHeaders ReceiveHeader[]
+}
+
+model ReceiveHeader {
+  id                 Int      @id @default(autoincrement())
+  receiveNo          String   @unique
+  receiveDate        DateTime @default(now())
+  beamIssueId        Int? // optional link to issue, if available
+  beamInwardDetailId Int
+  designId           Int
+  loomId             Int?
+  beamLtolSnapshot   Decimal? @db.Decimal(10, 2)
+  status             String   @default("DRAFT") // DRAFT / CONFIRMED
+  createdById        Int?
+  createdAt          DateTime @default(now())
+
+  beamIssue        BeamIssue?       @relation(fields: [beamIssueId], references: [id])
+  beamInwardDetail BeamInwardDetail @relation(fields: [beamInwardDetailId], references: [id])
+  design           DesignMaster     @relation(fields: [designId], references: [id])
+  loom             LoomMaster?      @relation(fields: [loomId], references: [id])
+  pieces           PieceDetail[]
+  createdBy        User?            @relation(fields: [createdById], references: [id])
+  beamAdjustment   BeamAdjustment[]
+}
+
+model PieceDetail {
+  id            Int      @id @default(autoincrement())
+  headerId      Int
+  mainPieceNo   Int
+  partSuffix    String?
+  pieceLabel    String
+  meter         Decimal  @db.Decimal(12, 2)
+  weight        Decimal? @db.Decimal(10, 2)
+  damagedMeter  Decimal  @default(0) @db.Decimal(12, 2)
+  damagedWeight Decimal? @db.Decimal(10, 2)
+  netMeter      Decimal  @db.Decimal(12, 2)
+  netWeight     Decimal? @db.Decimal(10, 2)
+  reed          Int?
+  pick          Int?
+  width         Decimal? @db.Decimal(10, 2)
+  avgInterval   Decimal? @db.Decimal(8, 2)
+  deltaLtol     Decimal? @db.Decimal(8, 2)
+  remarks       String?
+  createdAt     DateTime @default(now())
+
+  header     ReceiveHeader @relation(fields: [headerId], references: [id])
+  marks      PieceMark[]
+  rollMaster RollMaster?
+
+  @@unique([mainPieceNo, partSuffix])
+}
+
+model PieceMark {
+  id        Int      @id @default(autoincrement())
+  pieceId   Int
+  markIndex Int
+  position  Decimal  @db.Decimal(10, 2)
+  createdAt DateTime @default(now())
+
+  piece PieceDetail @relation(fields: [pieceId], references: [id])
+}
+
+model RollMaster {
+  id                    Int      @id @default(autoincrement())
+  pieceId               Int      @unique
+  beamInwardDetailId    Int
+  designId              Int
+  loomId                Int?
+  meter                 Decimal  @db.Decimal(12, 2)
+  netMeter              Decimal  @db.Decimal(12, 2)
+  weight                Decimal? @db.Decimal(10, 2)
+  receiveDate           DateTime @default(now())
+  receivedById          Int?
+  qrCodeValue           String?
+  createdAt             DateTime @default(now())
+
+  piece      PieceDetail      @relation(fields: [pieceId], references: [id])
+  beamDetail BeamInwardDetail @relation(fields: [beamInwardDetailId], references: [id])
+  design     DesignMaster     @relation(fields: [designId], references: [id])
+  loom       LoomMaster?      @relation(fields: [loomId], references: [id])
+  receivedBy User?            @relation("UserReceives", fields: [receivedById], references: [id])
+}
+
+model BeamAdjustment {
+  id                      Int       @id @default(autoincrement())
+  beamId                  Int
+  receiveId               Int?
+  expectedRemainingBefore Decimal   @db.Decimal(12, 2)
+  actualReceived          Decimal   @db.Decimal(12, 2)
+  overBy                  Decimal   @db.Decimal(12, 2)
+  actionTaken             String // increase_total / allow_negative / rejected
+  newBeamTotal            Decimal?  @db.Decimal(12, 2)
+  newRemaining            Decimal?  @db.Decimal(12, 2)
+  approvedById            Int?
+  approvedAt              DateTime?
+  note                    String?
+  evidenceUrl             String?
+  createdAt               DateTime  @default(now())
+
+  beam       BeamInwardDetail @relation(fields: [beamId], references: [id])
+  receive    ReceiveHeader?   @relation(fields: [receiveId], references: [id])
+  approvedBy User?            @relation("UserApproves", fields: [approvedById], references: [id])
+}
+
+model FinancialCounter {
+  id        Int      @id @default(autoincrement())
+  key       String
+  fy        String
+  value     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([key, fy], name: "key_fy")
+}
